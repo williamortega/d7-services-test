@@ -1,0 +1,4 @@
+name = Drupal 7 - Custom Service
+description = Allows test Service module.
+core = 7.x
+package = Other

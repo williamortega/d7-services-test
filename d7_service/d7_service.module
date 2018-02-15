@@ -1,0 +1,292 @@
+<?php
+/**
+ * @file
+ * Custom functions for handle service module.
+ */
+
+/**
+ * Implements hook_services_resources().
+ */
+function d7_service_services_resources() {
+  $resources = array();
+
+  // resources "news"
+  $resources['article'] = array(
+    'operations' => array(
+      'create' => array(
+        'help' => 'Create a Single Article',
+        'callback' => '_d7_service_article_create',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'data',
+            'type' => 'array',
+            'optional' => FALSE,
+            'source' => 'data',
+          ),
+        ),
+      ),
+      'update' => array(
+        'help' => 'Update an Article',
+        'callback' => '_d7_service_article_update',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'nid',
+            'type' => 'int',
+            'optional' => FALSE,
+            'source' => array('path' => 0),
+          ),
+          array(
+            'name' => 'data',
+            'type' => 'array',
+            'optional' => FALSE,
+            'source' => 'data',
+          ),
+        ),
+      ),
+      'delete' => array(
+        'help' => 'Delete an Article',
+        'callback' => '_d7_service_article_delete',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'nid',
+            'type' => 'int',
+            'optional' => FALSE,
+            'source' => array('path' => 0),
+          ),
+        ),
+      ),
+      'retrieve' => array(
+        'help' => 'Get a single Article',
+        'callback' => '_d7_service_article_retrieve',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'nid',
+            'type' => 'int',
+            'optional' => FALSE,
+            'source' => array('path' => 0),
+          ),
+        ),
+      ),
+      'index' => array(
+        'help' => 'Get all Article',
+        'callback' => '_d7_service_article_index',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'page',
+            'type' => 'int',
+            'optional' => TRUE,
+            'source' => array('param' => 'page'),
+            'default value' => 0,
+          ),
+          array(
+            'name' => 'limit',
+            'type' => 'int',
+            'optional' => TRUE,
+            'source' => array('param' => 'limit'),
+            'default value' => 20,
+          ),
+        ),
+      ),
+    ),
+    'actions' => array(
+      'most-revelant' => array(
+        'help' => 'Get Most Relevant Article',
+        'callback' => '_d7_service_article_most_relevant',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(),
+      ),
+    ),
+    'relationships' => array(
+      'comments' => array(
+        'help' => 'Get comments of a single article',
+        'callback' => '_d7_service_relationship_comments',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'nid',
+            'type' => 'int',
+            'optional' => FALSE,
+            'source' => array('path' => 0),
+          ),
+        ),
+      ),
+    ),
+    'targeted_actions' => array(
+      'like' => array(
+        'help' => 'Set a Like for the Article',
+        'callback' => '_d7_service_target_actions_link',
+        'access callback' => '_d7_service_access_callback',
+        'args' => array(
+          array(
+            'name' => 'nid',
+            'type' => 'int',
+            'optional' => FALSE,
+            'source' => array('path' => 0),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  return $resources;
+}
+
+function _d7_service_access_callback() {
+  return TRUE;
+}
+
+function _d7_service_article_create($data) {
+  global $user;
+
+  if (empty($data)) {
+    return services_error(t('Data should have title and body.'), 400);
+  }
+
+  $node = new stdClass();
+  $node->title = check_plain($data['title']);
+  $node->type = 'article';
+  node_object_prepare($node);
+  $node->language = LANGUAGE_NONE;
+  $node->body[$node->language][]['value'] = $data['body'];
+  $node->uid = $user->uid;
+  $node->status = 1;
+
+  $node = node_submit($node);
+  node_save($node);
+
+  return $node;
+}
+
+function _d7_service_article_update($nid, $data) {
+  if ($nid == 0 || empty($data)) {
+    return services_error(t('Please add $nid and $data.'), 400, array(
+      $nid, $data
+    ));
+  }
+
+  if ($node = node_load($nid)) {
+    $node->title = $data['title'];
+    $node->body['und'][0]['value'] = $data['body'];
+    node_save($node);
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+function _d7_service_article_delete($nid) {
+  if (empty($nid) || !is_numeric($nid)) {
+    return services_error(t('Please define a value for $nid in path.'), 400, array(
+      $nid
+    ));
+  }
+
+  node_delete($nid);
+
+  return TRUE;
+}
+
+function _d7_service_article_index($page, $limit) {
+  return services_error(t('Not implemented'), 501, array($page, $limit));
+}
+
+function _d7_service_article_retrieve($nid) {
+  if (empty($nid) || !is_numeric($nid)) {
+    return services_error(t('Please define a value for $nid in path.'), 400, array(
+      $nid
+    ));
+  }
+
+  $node = node_load($nid);
+
+  return $node;
+}
+
+function _d7_service_article_most_relevant() {
+  $select = db_select('node', 'n')
+    ->fields('n', array('nid'))
+    ->condition('promote', 1)
+    ->condition('status', 1)
+    ->condition('type', 'article')
+    ->orderBy('sticky', 'DESC')
+    ->orderBy('created', 'DESC')
+    ->range(0, 5);
+  
+  $nids = $select->execute()
+    ->fetchAllKeyed(0, 0);
+  
+  $nodes = node_load_multiple($nids);
+
+  $nodes = _d7_service_reindex_for_js($nodes);
+
+  return $nodes;
+}
+
+function _d7_service_reindex_for_js($nodes) {
+  $clean_nodes = array();
+  foreach ($nodes as $node) {
+    $clean_nodes[] = $node;
+  }
+
+  return $clean_nodes;
+}
+
+function _d7_service_target_actions_link($nid) {
+  if (empty($nid) || !is_numeric($nid)) {
+    return services_error(t('Please define a value for $nid in path.'), 400, array(
+      $nid
+    ));
+  }
+
+  return services_error(t('Not impemented'), 500, array($nid));
+}
+
+function _d7_service_relationship_comments($nid, $page = 0, $limit = 100) {
+  if (module_exists('comment')) {
+    if (empty($nid) || !is_numeric($nid)) {
+      return services_error(t('Please define a value for $nid in path.'), 400, array(
+        $nid
+      ));
+    }
+
+    $node = node_load($nid);
+    if (empty($node) || $node->type != 'article') {
+      return services_error('Not found', 404, array($nid));
+    }
+
+    $return_comments = $cids = array();
+
+    $query = db_select('comment', 'c');
+    $query->innerJoin('node', 'n', 'n.nid = c.nid');
+    $query->addTag('node_access');
+    $query->fields('c', array('cid'))
+      ->condition('c.nid', $node->nid);
+
+    if ($limit) {
+      $query->range($page * $limit, $limit);
+    }
+
+    $result = $query->execute()
+      ->fetchAll();
+    
+    foreach ($result as $record) {
+      $cids[] = $record->cid;
+    }
+
+    !empty($cids) ? $comments = comment_load_multiple($cids) : array();
+
+    foreach ($comments as $comment) {
+      $return_comments[] = services_field_permissions_clean('view', 'comment', $comment);
+    }
+
+    return $return_comments;
+  }
+  else {
+    return services_error('Comments is not Enabled.', 500);
+  }
+}
